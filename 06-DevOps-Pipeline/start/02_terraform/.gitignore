@@ -1,0 +1,18 @@
+vars_profile_enforcer.tf
+11_vars_profile_enforcer.tf
+.git
+# downloaded files
+node_modules
+# built files
+dist
+*.zip
+# temp files
+.DS_Store
+*.orig
+# user-specific files
+.terraform*
+*.tfstate*
+*override.tf
+package-lock.json
+# secrets
+.env

@@ -1,0 +1,114 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Build & Deploy
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "develop" branch
+  push:
+    branches:
+    - develop
+    - main
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+env:
+  ENV_NAME: ${{ github.ref_name == 'main' && 'prod' || github.ref_name == 'develop' && 'dev' || 'unknown' }}
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    environment:
+      name: ${{ github.ref_name == 'main' && 'prod' || github.ref_name == 'develop' && 'dev' || 'unknown' }}
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      #Github Marketplace: AWS configure
+      - name: "Configure AWS Credentials Action for GitHub Actions"
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      #Github Marketplace: Terraform setup
+      - name: HashiCorp - Setup Terraform
+        uses: hashicorp/setup-terraform@v2.0.3
+        with:
+          terraform_wrapper: false
+          
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+
+      # Runs a single command using the runners shell
+      - name: Run QA
+        run: echo QA and testing, TBD!
+
+      - name: Build & Deploy
+        run: |
+          # Build terraform.tfvars file
+          echo "tags = {" > terraform.tfvars
+          echo "  \"project\" = \"terraform-workshop\"" >> terraform.tfvars
+          echo "  \"env\"     = \"$ENV_NAME\"" >> terraform.tfvars
+          echo "}" >> terraform.tfvars
+          echo "ENV_NAME = \"$ENV_NAME\"" >> terraform.tfvars
+          echo "LAMBDA_ZIP_FILE = \"./artifacts/python_app.zip\"" >> terraform.tfvars # relative to Terraform folder
+          echo "AWS_REGION = \"${{ vars.AWS_REGION }}\"" >> terraform.tfvars
+          cat terraform.tfvars
+
+          terraform init -backend-config="bucket=${{ vars.TERRAFORM_S3_BUCKET }}" \
+                         -backend-config="key=$ENV_NAME/terraform.tfstate" \
+                         -backend-config="region=${{ vars.AWS_REGION }}" \
+                         -backend-config="access_key=${{ secrets.AWS_ACCESS_KEY_ID }}" \
+                         -backend-config="secret_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+                         -backend-config="encrypt=true" \
+                         -backend-config="use_lockfile=true"
+          terraform apply --auto-approve --var-file="terraform.tfvars"
+
+          unset TF_LOG # disable terraform debug logs that interfere with terraform output
+          terraform output -json > terraform_output.json
+
+          export GATEWAY_URL="$(jq -r '.my_gateway_url.value' ./terraform_output.json)/health"
+          echo "curl the lambda through the api gateway: $GATEWAY_URL"
+          STATUSCODE=$(curl --silent --output /dev/stderr --write-out "%{http_code}" $GATEWAY_URL)
+          if [ "$STATUSCODE" -ne 200 ]; then
+            echo "curl lambda to $GATEWAY_URL failed with status code $STATUSCODE"
+            exit "$STATUSCODE"
+          fi
+
+      - name: Check connection to lambda
+        run: |
+          export GATEWAY_URL="$(jq -r '.my_gateway_url.value' ./terraform_output.json)/info"
+          echo "curl the lambda through the api gateway: $GATEWAY_URL"
+          STATUSCODE=$(curl --silent --output /dev/stderr --write-out "%{http_code}" $GATEWAY_URL)
+          if [ "$STATUSCODE" -ne 200 ]; then
+            echo "curl lambda to $GATEWAY_URL failed with status code $STATUSCODE"
+            exit "$STATUSCODE"
+          fi
+
+      - name: Destroy steps
+        run: |
+          echo "tags = {" > terraform.tfvars
+          echo "  \"project\" = \"terraform-workshop\"" >> terraform.tfvars
+          echo "  \"env\"     = \"$ENV_NAME\"" >> terraform.tfvars
+          echo "}" >> terraform.tfvars
+          echo "ENV_NAME = \"$ENV_NAME\"" >> terraform.tfvars
+          echo "LAMBDA_ZIP_FILE = \"./artifacts/python_app.zip\"" >> terraform.tfvars # relative to Terraform folder
+          echo "AWS_REGION = \"${{ vars.AWS_REGION }}\"" >> terraform.tfvars
+          [ "${{ vars.DESTROY_FLAG }}" = 1 ] && echo "Destroy will be done!" || echo "Skipping destroying..."
+          [ "${{ vars.DESTROY_FLAG }}" = 1 ] && terraform destroy --auto-approve --var-file="terraform.tfvars"
+
+      #Github Marketplace: Upload a Build Artifact
+      - name: Upload a Build Artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4.6.1
+        with:
+          name: "tfout artifact"
+          path: "./terraform_output.json"
+
+          
