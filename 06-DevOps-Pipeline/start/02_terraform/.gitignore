@@ -1,6 +1,5 @@
 vars_profile_enforcer.tf
 11_vars_profile_enforcer.tf
-.git
 # downloaded files
 node_modules
 # built files
