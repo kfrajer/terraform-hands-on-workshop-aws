@@ -5,6 +5,12 @@ import time
 import boto3
 from decimal import Decimal
 
+## OVERVIEW:
+##
+## This project is to use with terraform-hands-on-worksop-aws (section 06) to leverage
+## an AWS Gateway's features. It also includes a few endpoints that introduces fake
+## delays for performance purposes.
+
 ## RESOURCES: Master tutorial hellow world for API-Gateway/Lambda: https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-create-api-as-simple-proxy-for-lambda.html?icmpid=apigateway_console
 ## RESOURCES: Interacting with DynamoDB: https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-dynamo-db.html
 ## Docs/Read:
@@ -164,7 +170,7 @@ def lambda_handler(event, context):
                 body_val = 'Post item ' + ", ".join(inserted_ids)
 
             elif http_method == 'PUT':
-                #TODO: Validate inpit values
+                #TODO: Validate input values
                 #TODO: Are we updating or rewritting an existent object, expected?
                 requestJSON = json.loads(event['body'])
                 table.put_item(
